@@ -255,29 +255,18 @@ class WebSocketOutput(BidiOutput):
         # Handle interruption
         elif event_type == "bidi_interruption":
             reason = event.get('reason', 'unknown')
-            logger.info(f"Interruption: {reason}")
+            logger.info(f"Interruption detected: {reason} - clearing audio buffer")
             
-            # If there's an active content block, close it immediately
-            if self.active_content_id:
-                logger.info(f"Closing active content due to interruption: {self.active_content_id}")
-                await self.output_queue.put({
-                    "event": {
-                        "contentEnd": {
-                            "contentId": self.active_content_id,
-                            "type": "TEXT"
-                        }
-                    }
-                })
-                # Clear active content
-                self.active_content_id = None
-                self.active_role = None
-                self.accumulated_text = ""
-            
-            # Notify frontend of interruption
+            # DON'T close content blocks - let them close naturally
+            # Just send the cancellation signal to stop audio playback
+            # Frontend checks role === "ASSISTANT" to detect interruption
+            # Use a dedicated contentId so it doesn't pollute normal chat
             await self.output_queue.put({
                 "event": {
-                    "interruption": {
-                        "reason": reason
+                    "textOutput": {
+                        "role": "ASSISTANT",
+                        "content": '{"interrupted": true}',
+                        "contentId": "interruption-signal"
                     }
                 }
             })
@@ -304,18 +293,18 @@ class WebSocketOutput(BidiOutput):
         
         # Handle tool result
         elif event_type == "tool_result":
-            logger.info(f"TOOL RESULT EVENT: {event}")
-            
-            # Track tool errors to prevent infinite retry loops
             tool_result = event.get("tool_result", {})
             status = tool_result.get("status", "unknown")
             content = tool_result.get("content", [])
+            tool_use_id = tool_result.get("toolUseId", "unknown")
             
-            # Check if this is an error result
+            # Check if this is an actual error (not just "error":null in success response)
+            is_error = False
             if content and len(content) > 0:
                 result_text = content[0].get("text", "")
-                if "error" in result_text.lower() or status == "error":
-                    tool_use_id = tool_result.get("toolUseId", "unknown")
+                # Check for actual error patterns, not just the word "error"
+                if status == "error" or '"error":"' in result_text or '"statusCode":400' in result_text or '"statusCode":500' in result_text:
+                    is_error = True
                     
                     # Increment error count
                     self.tool_error_count[tool_use_id] = self.tool_error_count.get(tool_use_id, 0) + 1
@@ -328,6 +317,9 @@ class WebSocketOutput(BidiOutput):
                         logger.error(f"Tool failed {error_count} times - stopping agent to prevent infinite loop")
                         self.is_active = False
                         raise Exception(f"Tool retry limit exceeded ({self.MAX_TOOL_RETRIES} failures)")
+            
+            if not is_error:
+                logger.info(f"Tool result (success): {tool_use_id}")
         
         # Handle response complete
         elif event_type == "bidi_response_complete":
