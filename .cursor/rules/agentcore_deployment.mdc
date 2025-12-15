@@ -1,0 +1,106 @@
+---
+description: AWS Bedrock AgentCore deployment standards for all production agents
+alwaysApply: true
+---
+
+# AWS Bedrock AgentCore Deployment Standards
+
+## Deployment Requirement
+
+- **ALL production agents MUST be deployable to AWS Bedrock AgentCore**
+- Agents should be designed with AgentCore deployment in mind from the start
+- Local/interactive agents (like `portal_agent.py`) are acceptable for development/testing, but production agents must use AgentCore
+
+## AgentCore Runtime Patterns
+
+### Required Imports
+- Use `from bedrock_agentcore.runtime import BedrockAgentCoreApp` for AgentCore runtime
+- Initialize with `app = BedrockAgentCoreApp()` at module level
+
+### Entrypoint Function
+- Use `@app.entrypoint` decorator for the main entrypoint function
+- Entrypoint signature: `def invoke(payload: dict) -> dict:`
+- Extract prompt from payload: `prompt = payload.get("prompt", "")`
+- Return response as dict: `{"response": str(response)}`
+- Handle error cases: `{"error": "error message"}`
+
+### Agent Initialization Pattern
+- Use global/lazy initialization pattern for long-running services
+- Initialize agent on first request (singleton pattern)
+- Keep MCP client alive for the lifetime of the service
+- Example pattern:
+  ```python
+  _agent = None
+  _mcp_client = None
+  
+  async def get_agent():
+      global _agent, _mcp_client
+      if _agent is None:
+          # Initialize agent and tools
+      return _agent
+  ```
+
+### Async Handling
+- Use `asyncio.run()` to call async functions from sync entrypoint
+- Example: `agent = asyncio.run(get_agent())`
+
+## Dockerfile Requirements
+
+### Base Image
+- Use `ghcr.io/astral-sh/uv:python3.12-bookworm-slim` or similar
+- Set `WORKDIR /app`
+
+### Environment Variables
+- Set `AWS_REGION=us-east-1` and `AWS_DEFAULT_REGION=us-east-1` (company standard)
+- Set `PYTHONUNBUFFERED=1` for proper logging
+- Set `DOCKER_CONTAINER=1` if needed
+
+### Dependencies
+- MUST include `bedrock-agentcore>=1.0.0`
+- MUST include `aws-opentelemetry-distro==0.12.2` for observability
+- Include all Strands SDK dependencies
+- Include MCP and authentication dependencies
+
+### Security
+- Create non-root user: `useradd -m -u 1000 bedrock_agentcore`
+- Set ownership: `chown -R bedrock_agentcore:bedrock_agentcore /app`
+- Switch to non-root user: `USER bedrock_agentcore`
+
+### Ports
+- EXPOSE 9000, 8000, 8080 (AgentCore standard ports)
+
+### Command
+- Use OpenTelemetry instrumentation: `CMD ["opentelemetry-instrument", "python", "agent_file.py"]`
+
+## Configuration Standards
+
+### Region
+- **All resources MUST be in `us-east-1`** (company standard)
+- Set region in code: `REGION = "us-east-1"`
+- Configure in `.bedrock_agentcore.yaml`
+
+### Guardrails
+- Always use Bedrock Guardrails for production agents
+- Configure `guardrail_id` and `guardrail_version` in BedrockModel
+- Document guardrail ID in code comments
+
+### AgentCore Configuration
+- Use `.bedrock_agentcore.yaml` for deployment configuration
+- Configure execution role, ECR repository, network settings
+- Enable observability: `observability.enabled: true`
+
+## File Naming Conventions
+
+- Production AgentCore agents: `*_agent.py` (e.g., `kwikie_agent.py`)
+- Local/test agents: `portal_agent.py`, `test_*.py` (acceptable for development)
+
+## Reference Implementation
+
+- See `kwikie_agent.py` as the reference implementation for AgentCore deployment
+- Follow the patterns established in that file for consistency
+
+## Documentation
+
+- Document deployment steps in README.md
+- Include AgentCore deployment commands and configuration
+- Document agent name, ARN, and region in README

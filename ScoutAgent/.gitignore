@@ -1,0 +1,59 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Agent test files (local development only)
+test_agent.py
+test_gateway.py
+BRIEFING_PROMPT.txt
+DATA_REQUIREMENTS.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+*.log
+
+# uv
+uv.lock
+
+# AgentCore deployment artifacts
+.bedrock_agentcore/
+
+# Test results (local proof only)
+test-guardrail.txt
+planning.txt
+scout_performance_tradeoffs.md
+aggregation-lambda-proposal.md
+aggregation-lambda-proposal.docx
+
+# Docker local files
+.dockerignore
+
+# AWS IAM policy files (local only, sensitive)
+gateway-policy.json
+trust-policy.json
+

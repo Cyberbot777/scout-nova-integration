@@ -1,0 +1,38 @@
+---
+description: Enforce usage of Strands Agents SDK for all agent implementations
+alwaysApply: true
+---
+
+# Project Rules for Scout Agent
+
+## Strands SDK Requirements
+
+- **ALWAYS use the Strands Agents SDK** for all agent implementations in this project
+- **Reference the official Strands documentation** as the source of truth: https://strandsagents.com/latest/documentation/docs/
+- Use the **most current methods and syntax** from the Strands SDK documentation
+- The documentation is updated regularly - always check the latest patterns and best practices
+
+## Strands SDK Patterns
+
+### Agent Creation
+- Use `from strands import Agent` for agent creation
+- Use `from strands.models import BedrockModel` for model configuration
+- Use `from strands.tools.mcp import MCPClient` for MCP tool integration
+
+### Model Configuration
+- Use `BedrockModel` with appropriate parameters (region_name, model_id, guardrail_id, etc.)
+- Follow the current Bedrock model configuration patterns from the documentation
+
+### Tool Integration
+- Use `MCPClient` for connecting to MCP-based tools (like AgentCore Gateway)
+- Follow the MCP client patterns shown in the documentation
+
+### Code Style
+- Follow async/await patterns when using MCP clients
+- Use proper resource cleanup (context managers, __exit__ methods)
+- Maintain consistency with existing agent implementations (portal_agent.py, kwikie_agent.py)
+
+## Documentation Reference
+- Primary source: https://strandsagents.com/latest/documentation/docs/
+- When implementing new features or patterns, verify against the latest documentation
+- Prefer documented patterns over custom implementations

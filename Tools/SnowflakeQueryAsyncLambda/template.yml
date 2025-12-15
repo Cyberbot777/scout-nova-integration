@@ -1,0 +1,87 @@
+# This AWS SAM template has been generated from your function's configuration. If
+# your function has one or more triggers, note that the AWS resources associated
+# with these triggers aren't fully specified in this template and include
+# placeholder values. Open this template in AWS Infrastructure Composer or your
+# favorite IDE and modify it to specify a serverless application with other AWS
+# resources.
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: An AWS Serverless Application Model template describing your function.
+Resources:
+  AgentCoreToolSnowflakeQueryDEV:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src
+      Description: ''
+      MemorySize: 512
+      Timeout: 60
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.13
+      Architectures:
+        - x86_64
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          SNOWFLAKE_ACCOUNT: ISRNQVD-KL_AZURE_USE2_UAT
+          SNOWFLAKE_DATABASE: REPL_DB
+          SNOWFLAKE_SCHEMA: WHOLESALE_UAT_KIND_UAT
+          SNOWFLAKE_SECRET_PASSPHRASE_NAME: /uat/snowflake/rsa_key_passphrase
+          SNOWFLAKE_SECRET_PEM_NAME: /uat/snowflake/rsa_key_pem
+          SNOWFLAKE_USERNAME: KWIKIE_SERVICE_ACCOUNT_UAT
+          SNOWFLAKE_WAREHOUSE: COMPUTE_WH
+      EventInvokeConfig:
+        MaximumEventAgeInSeconds: 21600
+        MaximumRetryAttempts: 2
+      Layers:
+        - !Ref Layer1
+        - !Ref Layer2
+      PackageType: Zip
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+              Resource: arn:aws:logs:us-east-1:025066260073:*
+            - Effect: Allow
+              Action:
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource:
+                - >-
+                  arn:aws:logs:us-east-1:025066260073:log-group:/aws/lambda/AgentCoreTool-SnowflakeQuery-DEV:*
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - arn:aws:secretsmanager:us-east-1:*:secret:/uat/snowflake/rsa_key_pem*
+                - arn:aws:secretsmanager:us-east-1:*:secret:/uat/snowflake/rsa_key_passphrase*
+      RecursiveLoop: Terminate
+      SnapStart:
+        ApplyOn: None
+      RuntimeManagementConfig:
+        UpdateRuntimeOn: Auto
+  # This resource represents your Layer with name
+# Python-snowflake-connector-python. To download the content of your Layer, go
+# to
+# 
+# aws.amazon.com/go/view?arn=arn%3Aaws%3Alambda%3Aus-east-1%3A025066260073%3Alayer%3APython-snowflake-connector-python%3A1&source=lambda
+  Layer1:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      ContentUri: ./Python-snowflake-connector-python
+      LayerName: Python-snowflake-connector-python
+      CompatibleRuntimes:
+        - python3.14
+        - python3.13
+  # This resource represents your Layer with name PythonCryptography. To
+# download the content of your Layer, go to
+# 
+# aws.amazon.com/go/view?arn=arn%3Aaws%3Alambda%3Aus-east-1%3A025066260073%3Alayer%3APythonCryptography%3A7&source=lambda
+  Layer2:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      ContentUri: ./PythonCryptography
+      LayerName: PythonCryptography
+      CompatibleRuntimes:
+        - python3.13
