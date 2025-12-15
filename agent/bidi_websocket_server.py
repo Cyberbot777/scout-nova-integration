@@ -151,6 +151,8 @@ class WebSocketOutput(BidiOutput):
         self.is_active = True
         self.content_counter = 0  # For generating contentIds
         self.active_content_id = None  # Track current content
+        self.active_role = None  # Track role of current content
+        self.accumulated_text = ""  # Accumulate text across chunks
         self.tool_error_count = {}  # Track errors per tool
         self.MAX_TOOL_RETRIES = 3  # Stop after 3 consecutive failures
     
@@ -195,57 +197,90 @@ class WebSocketOutput(BidiOutput):
         
         # Handle transcript events
         elif event_type == "bidi_transcript_stream":
-            # Debug: log full event to see structure
-            logger.info(f"TRANSCRIPT EVENT: {event}")
-            
-            # Try multiple possible field names
             role = event.get("role", "ASSISTANT").upper()
-            text = event.get("transcript") or event.get("text") or event.get("content") or ""
+            # Get the delta/chunk text (NOT current_transcript which doesn't accumulate properly)
+            delta = event.get("text") or event.get("transcript") or ""
             is_final = event.get("is_final", False)
             
-            if text:
-                # For each new transcript, send contentStart -> textOutput -> contentEnd
-                self.content_counter += 1
-                content_id = f"content-{self.content_counter}"
-                
-                # 1. contentStart
-                await self.output_queue.put({
-                    "event": {
-                        "contentStart": {
-                            "role": role,
-                            "contentId": content_id,
-                            "type": "TEXT"
-                        }
-                    }
-                })
-                
-                # 2. textOutput
-                await self.output_queue.put({
-                    "event": {
-                        "textOutput": {
-                            "role": role,
-                            "content": text,
-                            "contentId": content_id
-                        }
-                    }
-                })
-                
-                # 3. contentEnd (only if final)
-                if is_final:
+            if delta:
+                # Check if role changed - if so, close previous content and start new one
+                if self.active_role and self.active_role != role:
+                    # Close previous content block
                     await self.output_queue.put({
                         "event": {
                             "contentEnd": {
-                                "contentId": content_id,
+                                "contentId": self.active_content_id,
+                                "type": "TEXT"
+                            }
+                        }
+                    })
+                    self.active_content_id = None
+                    self.active_role = None
+                    self.accumulated_text = ""  # Reset accumulator
+                
+                # Start new content block if needed
+                if not self.active_content_id:
+                    self.content_counter += 1
+                    self.active_content_id = f"content-{self.content_counter}"
+                    self.active_role = role
+                    self.accumulated_text = ""  # Reset accumulator
+                    
+                    # Send contentStart
+                    await self.output_queue.put({
+                        "event": {
+                            "contentStart": {
+                                "role": role,
+                                "contentId": self.active_content_id,
                                 "type": "TEXT"
                             }
                         }
                     })
                 
-                logger.info(f"Transcript [{role}]: {text[:80]}...")
+                # Accumulate text ourselves
+                self.accumulated_text += delta
+                
+                # Send textOutput with ACCUMULATED text (replaces previous)
+                await self.output_queue.put({
+                    "event": {
+                        "textOutput": {
+                            "role": role,
+                            "content": self.accumulated_text,
+                            "contentId": self.active_content_id
+                        }
+                    }
+                })
+                
+                logger.info(f"Transcript [{role}]: {self.accumulated_text[:80]}...")
         
         # Handle interruption
         elif event_type == "bidi_interruption":
-            logger.info(f"Interruption: {event.get('reason', 'unknown')}")
+            reason = event.get('reason', 'unknown')
+            logger.info(f"Interruption: {reason}")
+            
+            # If there's an active content block, close it immediately
+            if self.active_content_id:
+                logger.info(f"Closing active content due to interruption: {self.active_content_id}")
+                await self.output_queue.put({
+                    "event": {
+                        "contentEnd": {
+                            "contentId": self.active_content_id,
+                            "type": "TEXT"
+                        }
+                    }
+                })
+                # Clear active content
+                self.active_content_id = None
+                self.active_role = None
+                self.accumulated_text = ""
+            
+            # Notify frontend of interruption
+            await self.output_queue.put({
+                "event": {
+                    "interruption": {
+                        "reason": reason
+                    }
+                }
+            })
         
         # Handle tool use
         elif event_type == "tool_use_stream":
