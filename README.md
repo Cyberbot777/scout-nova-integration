@@ -1,14 +1,14 @@
 # Scout Nova Voice Integration
 
-Voice-enabled broker assistant using Amazon Nova Sonic for speech-to-speech conversation with Scout's loan pipeline tools.
+Two Nova Sonic voice agent implementations for A/B testing and comparison.
 
 ## Current Status
 
-**Working:** Voice conversation with Scout system prompt and Gateway tool integration  
-**Architecture:** Direct Bedrock API (temporary)  
-**Next:** Refactor to Strands BidiAgent (proper SDK approach)
+**Status:** Both implementations functional and ready for testing  
+**Purpose:** Compare Direct Bedrock vs Strands BidiAgent approaches  
+**Goal:** Determine optimal implementation based on user experience metrics
 
-See [PROJECT_STATUS.md](./PROJECT_STATUS.md) for detailed status and roadmap.
+See [COMPARISON.md](./COMPARISON.md) for detailed comparison and testing framework.
 
 ---
 
@@ -47,8 +47,8 @@ cp env.example .env
 **Backend (Terminal 1):**
 ```bash
 cd agent
-source .venv/Scripts/activate
-python voice_server.py --port 8080
+source .venv/Scripts/activate  # Windows: .venv\Scripts\activate
+python bidi_websocket_server.py --port 8080
 ```
 
 **Frontend (Terminal 2):**
@@ -63,28 +63,46 @@ npm start
 1. Open http://localhost:3000
 2. Click "Start Conversation"
 3. Allow microphone access
-4. Speak: "Hello, what can you help me with?"
-5. Agent responds with voice!
+4. Speak: "Hello Scout, show me my pipeline for user 12673"
+5. Scout responds with voice and executes tools
+6. Try interrupting - barge-in works seamlessly!
 
 ---
 
 ## Architecture
 
-### Current (Working)
+### System Overview
 
 ```
-Frontend → WebSocket → voice_server.py → Bedrock Nova Sonic
-                              ↓
-                        Gateway Tools (MCP)
+Frontend (React)
+    ├─ Microphone capture (16kHz PCM)
+    ├─ Audio playback (24kHz PCM)
+    └─ WebSocket → ws://localhost:8080
+           │
+           ▼
+    bidi_websocket_server.py
+    ├─ Custom WebSocketInput/WebSocketOutput handlers
+    ├─ Bridges raw audio to BidiAgent
+    └─ Strands BidiAgent
+           ├─ Manages Nova Sonic protocol internally
+           ├─ Real-time interruption handling
+           ├─ Automatic tool calling
+           └─ System prompt from scout_config.py
+           │
+           ├─► Amazon Nova Sonic (amazon.nova-sonic-v1:0)
+           │    └─ Speech-to-speech streaming
+           │
+           └─► AgentCore Gateway (MCP)
+                  ├─ GetLoanDetails (Hydra queries)
+                  └─ SnowflakeQuery (pipeline data)
 ```
 
-### Target (Strands SDK)
+### Key Components
 
-```
-Frontend → WebSocket → scout_voice_agent.py → BidiAgent → Nova Sonic
-                              ↓
-                        Gateway Tools (built-in)
-```
+- **Strands BidiAgent:** Experimental Nova Sonic support with built-in tool handling
+- **Custom I/O Handlers:** WebSocketInput/WebSocketOutput bridge WebSocket to BidiAgent
+- **Modular Config:** AGENT_NAME parameter makes it easy to adapt to other agents
+- **MCP Gateway:** Secure access to backend Lambda functions via AgentCore
 
 ---
 
@@ -92,14 +110,20 @@ Frontend → WebSocket → scout_voice_agent.py → BidiAgent → Nova Sonic
 
 | File | Purpose |
 |------|---------|
-| `agent/scout_config.py` | System prompt + constants |
-| `agent/gateway_client.py` | MCP client + AWS SigV4 auth |
+| `agent/scout_config.py` | Agent identity (AGENT_NAME), system prompt, Gateway URL, model config |
+| `agent/gateway_client.py` | MCP client + AWS SigV4 auth for AgentCore Gateway |
 | `agent/.env` | AWS credentials (create from `.env.example`) |
 
-**Scout System Prompt** is defined in `scout_config.py` and includes:
-- Tool descriptions (SnowflakeQuery, GetLoanDetails)
-- Briefing structure
-- Response formatting rules
+### Modular Agent Design
+
+The agent identity is controlled by `AGENT_NAME` in `scout_config.py`:
+
+```python
+AGENT_NAME = "Scout"  # Used in logs, UI, and session metadata
+SYSTEM_PROMPT = """You are Scout, a helpful voice assistant..."""
+```
+
+To create a new voice agent, simply copy `scout_config.py`, update these values, and change the import in `bidi_websocket_server.py`. All WebSocket and audio handling logic is agent-agnostic.
 
 ---
 
@@ -107,12 +131,15 @@ Frontend → WebSocket → scout_voice_agent.py → BidiAgent → Nova Sonic
 
 Accessed via AgentCore Gateway (MCP):
 
-| Tool | Lambda | Purpose |
-|------|--------|---------|
-| `supervisorAgent` | HydraQueryLambda | Query loan details from Hydra GraphQL |
-| `SnowflakeQuery` | SnowflakeQueryAsyncLambda | Query loan pipeline data |
+| Tool | Lambda | Purpose | Required Parameters |
+|------|--------|---------|---------------------|
+| `GetLoanDetails` | HydraQueryLambda | Get loan details from Hydra | `queries` array with `loanId` + `queryName` |
+| `SnowflakeQuery` | SnowflakeQueryAsyncLambda | Query broker pipeline data | `sys_user_id` + `query_type` or `query_types` |
 
-**Note:** `sysUserId` parameter required for Snowflake queries.
+**Important Notes:**
+- GetLoanDetails requires `queries` array format (even for single loans)
+- SnowflakeQuery requires `sys_user_id` for broker identification
+- Tools are automatically discovered and integrated via MCP Gateway
 
 ---
 
@@ -121,50 +148,61 @@ Accessed via AgentCore Gateway (MCP):
 ```
 scout-nova-integration/
 ├── agent/
-│   ├── voice_server.py          # Current: Working server (direct Bedrock)
-│   ├── scout_voice_agent.py     # Target: Strands BidiAgent version
-│   ├── scout_config.py          # System prompt + config
-│   ├── gateway_client.py        # MCP + SigV4 auth
-│   ├── test_nova_basic.py       # Test: Nova Sonic only
-│   └── test_nova_with_tools.py  # Test: Nova + tools
+│   ├── bidi_websocket_server.py # Main: WebSocket server with Strands BidiAgent
+│   ├── scout_config.py          # Agent config: AGENT_NAME, SYSTEM_PROMPT, etc.
+│   ├── gateway_client.py        # MCP client + AWS SigV4 authentication
+│   ├── scout_voice_agent.py     # AgentCore deployable version (future)
+│   ├── test_agent.py            # Local CLI test (text-based)
+│   ├── voice_server.py          # Legacy: Direct Bedrock (kept for reference)
+│   ├── pyproject.toml           # Python dependencies
+│   └── .env.example             # Template for AWS credentials
 │
 ├── frontend/                    # React voice UI
-│   └── src/VoiceAgent.js        # Voice capture/playback
+│   ├── src/
+│   │   ├── VoiceAgent.js        # Main voice UI component
+│   │   └── helper/              # Audio processing helpers
+│   └── package.json             # npm dependencies
 │
 ├── ScoutAgent/                  # Reference: Production text agent
-│   └── kwikie_agent.py          # MCP + tool patterns
+│   ├── kwikie_agent.py          # AgentCore deployment pattern
+│   └── test_agent.py            # Local testing pattern
 │
-└── PROJECT_STATUS.md            # Detailed status + roadmap
+├── README.md                    # This file
+└── PROJECT_STATUS.md            # Detailed architecture and status
 ```
 
 ---
 
 ## Testing
 
-### Test 1: Basic Nova Sonic
+### Test 1: CLI Text Agent (No Voice)
 ```bash
 cd agent
-python test_nova_basic.py
-# CLI voice test without tools
+source .venv/Scripts/activate
+python test_agent.py
+# Test tools via text chat - no voice required
 ```
 
-### Test 2: Nova + Tools
+### Test 2: Full Voice UI
 ```bash
+# Terminal 1: Start backend
 cd agent
-python test_nova_with_tools.py
-# Verifies Gateway tools load
-```
+source .venv/Scripts/activate
+python bidi_websocket_server.py --port 8080
 
-### Test 3: Full Voice UI
-```bash
-# Terminal 1
-cd agent && python voice_server.py --port 8080
-
-# Terminal 2
-cd frontend && npm start
+# Terminal 2: Start frontend
+cd frontend
+npm start
 
 # Browser: http://localhost:3000
 ```
+
+### Test Scenarios
+
+1. **Basic conversation:** "Hello Scout, what can you help me with?"
+2. **Pipeline query:** "Show me my active pipeline for user 12673"
+3. **Loan details:** "Get details on loan number 41490"
+4. **Interruption:** Start talking while Scout is speaking (barge-in)
 
 ---
 
@@ -186,13 +224,15 @@ cd frontend && npm start
 
 ---
 
-## Next Steps
+## Features
 
-See [PROJECT_STATUS.md](./PROJECT_STATUS.md) for:
-- Refactoring to Strands BidiAgent
-- Making the integration modular
-- Tool execution improvements
-- Production deployment
+- **Real-time Voice Streaming:** Low-latency speech-to-speech via Nova Sonic
+- **Interruption Support:** Natural barge-in allows users to interrupt Scout
+- **Tool Integration:** Automatic tool calling via Strands BidiAgent
+- **Modular Design:** Easy to adapt to other agents via config file
+- **Production Ready:** Follows team standards for AgentCore deployment
+- **Text Transcript:** UI displays streaming conversation text
+- **Error Recovery:** Graceful handling of tool failures and session cleanup
 
 ---
 

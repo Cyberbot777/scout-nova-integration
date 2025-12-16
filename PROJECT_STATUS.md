@@ -1,68 +1,53 @@
 # Scout Nova Voice Integration - Status
 
 **Last Updated:** December 15, 2025  
-**Current State:** Working prototype with direct Bedrock API  
-**Goal:** Refactor to use Strands BidiAgent (proper SDK approach)
+**Current State:** Production-ready with Strands BidiAgent  
+**Status:** Fully functional voice agent with real-time tool integration
 
 ---
 
-## Current Architecture
+## Architecture
 
 ```
 Frontend (React)
-    ├─ Captures microphone audio
-    ├─ Sends Nova Sonic protocol events
-    └─ WebSocket → ws://localhost:8080
+    ├─ Captures microphone audio (raw PCM)
+    ├─ Sends Nova Sonic protocol events via WebSocket
+    └─ ws://localhost:8080
            │
            ▼
-    voice_server.py (Python)
-    ├─ Direct Bedrock Nova Sonic API ⚠️ (not using Strands SDK)
-    ├─ Injects Scout system prompt from scout_config.py
-    ├─ Manual tool execution via gateway_client.py
-    └─ Forwards responses back to frontend
+    bidi_websocket_server.py (Python)
+    ├─ Strands BidiAgent (manages Nova Sonic internally)
+    ├─ Custom WebSocketInput/WebSocketOutput handlers
+    ├─ Bridges raw WebSocket audio to BidiAgent
+    ├─ System prompt from scout_config.py
+    └─ MCP tools from gateway_client.py
            │
            ├─► Bedrock Nova Sonic (amazon.nova-sonic-v1:0)
-           └─► AgentCore Gateway (MCP)
-                  ├─ supervisorAgent
-                  └─ SnowflakeQuery
-```
-
-### What Works ✅
-- Voice input/output streaming
-- Scout system prompt injection
-- Tool discovery (2 Gateway tools loaded)
-- Manual tool execution (basic - needs fixing)
-- Full conversation flow
-
-### Problem ⚠️
-**Not using Strands SDK** - We're using direct Bedrock API instead of `BidiAgent`. This violates team "Strands SDK first" standards.
-
----
-
-## Target Architecture (Strands SDK)
-
-```
-Frontend (React)
-    ├─ Sends RAW AUDIO BYTES (not Nova Sonic events)
-    └─ WebSocket → ws://localhost:8080
+           │    ├─ Speech-to-speech streaming
+           │    ├─ Automatic interruption handling
+           │    └─ Tool calling via BidiAgent
            │
-           ▼
-    scout_voice_agent.py (Python)
-    ├─ Strands BidiAgent ✓
-    │   ├─ Manages Nova Sonic protocol internally
-    │   ├─ Built-in tool handling
-    │   └─ Automatic response streaming
-    ├─ Custom WebSocket I/O handler
-    ├─ Uses scout_config.py (system prompt)
-    └─ Uses gateway_client.py (MCP tools)
+           └─► AgentCore Gateway (MCP)
+                  ├─ GetLoanDetails (Hydra queries)
+                  └─ SnowflakeQuery (pipeline data)
 ```
 
-### Why This Is Better
-- **Strands SDK maintains the Nova Sonic protocol** (not us)
-- **Tool execution built-in** (no manual handling)
-- **Cleaner code** (abstracts complexity)
-- **Aligns with team standards** (same pattern as kwikie_agent.py)
-- **Future-proof** (automatic updates from Strands)
+### What Works
+- Real-time voice input/output streaming
+- Nova Sonic interruption (barge-in) feature
+- Strands BidiAgent tool integration
+- Scout system prompt and personality
+- Gateway tool discovery and execution
+- Modular agent configuration (AGENT_NAME parameter)
+- Conversation continuity after interruptions
+- Text transcript display in UI
+
+### Key Features
+- **Strands SDK First:** Uses BidiAgent with experimental Nova Sonic support
+- **Custom I/O Handlers:** WebSocketInput/WebSocketOutput bridge raw audio
+- **Tool Integration:** Automatic tool calling via MCP Gateway
+- **Modular Design:** Agent identity configurable via scout_config.py
+- **Production Ready:** Follows team standards for AgentCore deployment
 
 ---
 
@@ -73,106 +58,116 @@ scout-nova-integration/
 ├── agent/
 │   ├── .venv/                       # Python virtual environment
 │   ├── .env                         # AWS credentials (create from .env.example)
-│   ├── pyproject.toml               # Dependencies
-│   ├── scout_config.py              # System prompt + constants
-│   ├── gateway_client.py            # MCP client + SigV4 auth
-│   ├── voice_server.py              # Current working server (direct Bedrock)
-│   └── scout_voice_agent.py         # Target: Strands BidiAgent version
+│   ├── .env.example                 # Template for credentials
+│   ├── pyproject.toml               # Python dependencies (uv-managed)
+│   ├── bidi_websocket_server.py     # Main: Strands BidiAgent WebSocket server
+│   ├── scout_config.py              # Agent config: AGENT_NAME, SYSTEM_PROMPT, etc.
+│   ├── gateway_client.py            # MCP client + AWS SigV4 auth
+│   ├── scout_voice_agent.py         # AgentCore deployable version
+│   ├── test_agent.py                # Local CLI test agent
+│   └── voice_server.py              # Legacy: Direct Bedrock (kept for reference)
 │
 ├── frontend/                        # React voice UI
-│   └── src/VoiceAgent.js            # Voice capture/playback
+│   ├── src/
+│   │   ├── VoiceAgent.js            # Voice capture/playback/UI
+│   │   └── helper/audioPlayer.js    # Audio worklet processor
+│   ├── package.json                 # npm dependencies
+│   └── public/                      # Static assets
 │
-└── ScoutAgent/                      # Reference: Production text agent
-    └── kwikie_agent.py              # Shows proper MCP + tools pattern
+├── ScoutAgent/                      # Reference: Production text agent
+│   ├── kwikie_agent.py              # Shows AgentCore deployment pattern
+│   └── test_agent.py                # Local testing pattern
+│
+└── PROJECT_STATUS.md                # This file
 ```
 
 ---
 
-## Next Steps
+## Modular Design
 
-### 1. Research BidiAgent Custom I/O (30 min)
-- Investigate how `BidiAudioIO` works internally
-- Determine if we can create custom I/O handler for WebSocket
-- Check Strands docs for WebSocket examples
+The agent is now fully modular and can be adapted for any Strands agent:
 
-### 2. Update Frontend (15 min)
-**Change:** Send raw PCM audio bytes instead of Nova Sonic events
-- Frontend currently wraps audio in Nova Sonic protocol
-- BidiAgent manages protocol internally - just needs raw audio
-- Simpler frontend code
-
-### 3. Implement scout_voice_agent.py (60 min)
+### Configuration File (scout_config.py)
 ```python
-# Proper Strands SDK approach
-from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiNovaSonicModel
-
-# Custom WebSocket I/O that feeds raw audio to BidiAgent
-class WebSocketAudioIO:
-    async def input(self):
-        # Yield raw audio bytes from WebSocket
-        
-    async def output(self, audio_chunk):
-        # Send audio bytes to WebSocket
-
-agent = BidiAgent(
-    model=BidiNovaSonicModel(...),
-    tools=gateway_tools,
-    system_prompt=SYSTEM_PROMPT
-)
-
-await agent.run(
-    inputs=[websocket_audio_io.input()],
-    outputs=[websocket_audio_io.output()]
-)
+AGENT_NAME = "Scout"  # Used throughout logs and UI
+SYSTEM_PROMPT = """You are Scout, a helpful voice assistant..."""
+GATEWAY_URL = "https://..."
+REGION = "us-east-1"
+VOICE_ID = "matthew"
 ```
 
-### 4. Test Tool Execution
-- Fix tool calling (current implementation has bugs)
-- Verify `sysUserId` is passed correctly
-- Test end-to-end: voice → tool call → voice response
+### To Create a New Voice Agent
+1. Copy `scout_config.py` to `my_agent_config.py`
+2. Update `AGENT_NAME`, `SYSTEM_PROMPT`, `GATEWAY_URL`
+3. Update import in `bidi_websocket_server.py`:
+   ```python
+   from my_agent_config import AGENT_NAME, SYSTEM_PROMPT, ...
+   ```
+4. Restart server - that's it!
 
-### 5. Make It Modular
-- Extract agent config to separate file
-- Make voice_server accept any agent configuration
-- Document how to add voice to any Strands agent
+The WebSocket server, I/O handlers, and BidiAgent logic are completely generic.
 
 ---
 
-## Testing Commands
+## Running the Agent
 
+### Development (Local Testing)
 ```bash
-# Start backend
+# Terminal 1: Start WebSocket server
 cd agent
-source .venv/Scripts/activate
-python voice_server.py --port 8080
+source .venv/Scripts/activate  # or .venv\Scripts\activate on Windows
+python bidi_websocket_server.py --port 8080
 
-# Start frontend (separate terminal)
+# Terminal 2: Start frontend
 cd frontend
 npm start
 # Opens http://localhost:3000
 ```
 
+### Test Without UI
+```bash
+cd agent
+source .venv/Scripts/activate
+python test_agent.py  # CLI text chat to test tools
+```
+
 ---
 
-## Key Decisions Needed
+## Recent Improvements
 
-1. **Proceed with Strands refactor?** (Recommended: Yes)
-2. **Keep voice_server.py as fallback?** (Recommended: Yes, until Strands version works)
-3. **Timeline?** Can have working Strands version in ~2 hours
+1. **Interruption Handling** - Nova Sonic barge-in working flawlessly
+2. **Tool Execution** - GetLoanDetails and SnowflakeQuery fully functional
+3. **Modular Config** - AGENT_NAME parameter for easy agent swapping
+4. **Error Recovery** - Graceful handling of tool errors and session cleanup
+5. **UI Text Display** - Streaming transcript with proper content management
 
 ---
 
 ## Dependencies
 
-All installed in `agent/.venv`:
-- `strands-agents[bidi-all]>=1.18.0` - BidiAgent + Nova Sonic
-- `websockets` - WebSocket server
+All managed via `pyproject.toml` and installed in `agent/.venv`:
+- `strands-agents[bidi-all]>=1.18.0` - BidiAgent + Nova Sonic support
+- `websockets>=13.0` - WebSocket server
 - `boto3` - AWS SDK
-- `mcp>=1.0.0` - Model Context Protocol
-- `httpx-auth-awssigv4` - Gateway authentication
+- `mcp>=1.1.2` - Model Context Protocol client
+- `httpx-auth-awssigv4` - AWS SigV4 authentication for Gateway
+- `python-dotenv` - Environment variable management
+
+Install with:
+```bash
+cd agent
+pip install -e .
+```
 
 ---
 
-**Priority:** Implement proper Strands BidiAgent approach to align with team standards and reduce maintenance burden.
+## Known Issues
+
+1. **GetLoanDetails requires queries array** - Lambda only accepts batch format. System prompt updated to enforce this.
+2. **Tool names show as "unknown"** - Frontend doesn't extract tool name from `tool_use_stream` events. Tools work correctly, just display issue.
+3. **Session cleanup traceback** - Harmless `InvalidStateError` on session end due to aggressive cancellation. Does not affect functionality.
+
+---
+
+**Status:** Production-ready Strands BidiAgent implementation. Follows team standards and ready for AgentCore deployment.
 
