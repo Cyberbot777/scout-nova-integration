@@ -1,0 +1,25 @@
+# AgentCore Runtime Configuration
+# Copy this to .bedrock_agentcore.yaml and fill in your values
+
+agent_name: scout-voice-agent
+region: us-east-1
+
+# Execution role with permissions for Bedrock, MCP Gateway, etc.
+execution_role: arn:aws:iam::YOUR_ACCOUNT:role/bedrock-agentcore-execution-role
+
+# ECR repository for Docker image
+ecr_repository: YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/scout-voice-agent
+
+# Network configuration (optional - remove if not using VPC)
+network:
+  vpc_id: vpc-xxxxx
+  subnet_ids:
+    - subnet-xxxxx
+    - subnet-yyyyy
+  security_group_ids:
+    - sg-xxxxx
+
+# Enable observability
+observability:
+  enabled: true
+
