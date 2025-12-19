@@ -7,7 +7,7 @@ class ExpandableBuffer {
         this.writeIndex = 0;
         this.underflowedSamples = 0;
         this.isInitialBuffering = true;
-        this.initialBufferLength = 3200;  // 200ms at 16kHz - adjust for responsiveness
+        this.initialBufferLength = 1600;  // 100ms at 16kHz - reduce buffering for smoother playback
         this.lastWriteTime = 0;
     }
 
