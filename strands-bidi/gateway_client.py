@@ -2,7 +2,6 @@
 Gateway Client - MCP client setup for AgentCore Gateway.
 Handles AWS SigV4 authentication for secure Gateway access.
 
-Extracted from kwikie_agent.py patterns.
 """
 import boto3
 from mcp.client.streamable_http import streamablehttp_client

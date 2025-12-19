@@ -39,7 +39,7 @@ cd strands-bidi
 
 # Create virtual environment
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate  
 
 # Install dependencies
 pip install -e .
@@ -57,23 +57,6 @@ python client.py --ws-url ws://localhost:8080/ws
 
 The client will open your browser at http://localhost:8000 with the voice interface.
 
-### AgentCore Production Deployment
-
-```bash
-# Build Docker image
-docker build -t scout-voice-agent .
-
-# Tag for ECR
-docker tag scout-voice-agent:latest YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/scout-voice-agent:latest
-
-# Push to ECR
-docker push YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/scout-voice-agent:latest
-
-# Deploy to AgentCore
-bedrock-agentcore deploy
-
-# Connect with pre-signed URL
-python client.py --runtime-arn arn:aws:bedrock-agentcore:us-east-1:ACCOUNT:runtime/RUNTIME_ID
 ```
 
 ## File Structure
@@ -152,7 +135,7 @@ https://github.com/awslabs/amazon-bedrock-agentcore-samples/tree/main/01-tutoria
 **Key simplification**: BidiAgent accepts WebSocket methods directly!
 
 ```python
-# NO custom I/O handlers needed!
+# NO custom I/O handlers needed
 agent = BidiAgent(
     model=BidiNovaSonicModel(...),
     tools=tools,
@@ -165,8 +148,6 @@ await agent.run(
     outputs=[websocket.send_json]
 )
 ```
-
-Compare this to custom implementations requiring 500+ lines of I/O handler code!
 
 ### Protocol: BidiAgent Events
 
@@ -216,7 +197,7 @@ The frontend and backend communicate using **BidiAgent protocol** (not Nova Soni
 
 ### Interruption Support
 
-**Yes!** Clean interruptions work because:
+Clean interruptions work because:
 - BidiAgent internally handles `bidi_interruption` events
 - Nova Sonic detects when user speaks during assistant response
 - Audio playback is automatically cleared
@@ -244,7 +225,6 @@ PORT=8080
 Available voice IDs:
 - `matthew` (male, US English)
 - `joanna` (female, US English)
-- `gregory` (male, UK English)
 - `amy` (female, UK English)
 
 Specify in config or via URL query param: `?voice_id=matthew`
@@ -294,34 +274,3 @@ AgentCore will:
 - Verify Gateway URL in config
 - Check MCP client can connect to Gateway
 - Review server logs for tool execution errors
-
-## Benefits Over Custom Implementation
-
-| Feature | This Implementation | Custom Implementation |
-|---------|-------------------|---------------------|
-| **Lines of Code** | ~200 | ~600 |
-| **Custom I/O Handlers** | None | Required |
-| **Tool Integration** | Automatic | Manual |
-| **Interruption Support** | Built-in | Manual |
-| **AWS Official Pattern** | Yes | No |
-| **Maintenance** | Low | High |
-
-## Comparison to Previous Implementation
-
-Your previous `scout_nova_agent.py` had:
-- Custom `WebSocketInput` class (90 lines)
-- Custom `WebSocketOutput` class (180 lines)
-- Manual event parsing and queuing
-- Manual task management
-
-**This implementation**: BidiAgent handles all of that internally!
-
-## Credits
-
-Based on AWS official samples:
-- https://aws.amazon.com/blogs/machine-learning/bi-directional-streaming-for-real-time-agent-interactions-now-available-in-amazon-bedrock-agentcore-runtime/
-- https://github.com/awslabs/amazon-bedrock-agentcore-samples/tree/main/01-tutorials/01-AgentCore-runtime/06-bi-directional-streaming/strands
-
-## License
-
-This implementation follows AWS Bedrock AgentCore standards and is designed for production use with Scout and other voice agents.

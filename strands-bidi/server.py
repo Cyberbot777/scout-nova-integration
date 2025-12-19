@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Scout Voice Agent - AgentCore Runtime with Bi-directional Streaming
-Simplified implementation following AWS official Strands BidiAgent pattern.
 
 This server supports:
 - HTTP /ping endpoint for health checks
@@ -271,7 +270,7 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     await websocket.accept()
 
-    # Get voice_id from query params (e.g., ?voice_id=matthew)
+    # Get voice_id from query params
     voice_id = websocket.query_params.get("voice_id", VOICE_ID)
     logger.info(f"New connection from {websocket.client}, voice: {voice_id}")
 
