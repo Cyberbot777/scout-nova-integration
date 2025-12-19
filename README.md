@@ -14,17 +14,32 @@ Production-ready voice agent using **AWS official Strands BidiAgent pattern** wi
 
 ### Local Development
 
+**Option 1: React Frontend (Recommended)**
 ```bash
+# Terminal 1: Start backend
 cd strands-bidi
-
-# Start backend
 python server.py
 
-# In another terminal, start frontend
-python client.py --ws-url ws://localhost:8080/ws
+# Terminal 2: Start React frontend
+cd frontend
+npm install
+npm start
+# Opens http://localhost:3000
 ```
 
-The browser will open with the voice interface. Click "Start Conversation" and speak!
+**Option 2: Simple HTML Client (Quick Testing)**
+```bash
+# Terminal 1: Start backend
+cd strands-bidi
+python server.py
+
+# Terminal 2: Start HTML client
+cd strands-bidi
+python client.py --ws-url ws://localhost:8080/ws
+# Opens http://localhost:8000
+```
+
+Click "Start Conversation" and speak!
 
 ### AgentCore Deployment
 
@@ -79,10 +94,10 @@ BidiAgent (Strands SDK)
 
 ```
 scout-nova-integration/
-├── strands-bidi/              # PRODUCTION VOICE AGENT
+├── strands-bidi/              # PRODUCTION VOICE AGENT BACKEND
 │   ├── server.py              # FastAPI backend with BidiAgent
-│   ├── client.py              # Client launcher with pre-signed URLs
-│   ├── client.html            # Voice interface (HTML/JS)
+│   ├── client.py              # HTML client launcher (testing)
+│   ├── client.html            # Simple HTML client (testing)
 │   ├── websocket_helpers.py   # SigV4 authentication
 │   ├── scout_config.py        # Scout configuration
 │   ├── config.example.py      # Template for other agents
@@ -90,6 +105,18 @@ scout-nova-integration/
 │   ├── Dockerfile             # Production deployment
 │   ├── pyproject.toml         # Dependencies
 │   └── README.md              # Complete documentation
+│
+├── frontend/                  # REACT FRONTEND (Production UI)
+│   ├── src/
+│   │   ├── VoiceAgent.js      # Main voice agent component
+│   │   ├── helper/
+│   │   │   ├── bidiEvents.js  # BidiAgent protocol helpers
+│   │   │   ├── audioHelper.js # Audio processing
+│   │   │   └── audioPlayer.js # Audio playback
+│   │   └── components/
+│   │       └── EventDisplay.js # Event log component
+│   ├── package.json           # React dependencies
+│   └── README.md              # Frontend documentation
 │
 └── ScoutAgent/                # Reference: Text-based agent
     ├── kwikie_agent.py        # Shows AgentCore deployment pattern
@@ -133,14 +160,29 @@ Tools are automatically discovered and integrated via the Gateway.
 
 ## Testing
 
-### Local Development
+### Local Development with React Frontend
 ```bash
 # Terminal 1: Backend
 cd strands-bidi
 python server.py
 
-# Terminal 2: Frontend
+# Terminal 2: React Frontend
+cd frontend
+npm install
+npm start
+# Opens http://localhost:3000
+```
+
+### Local Development with HTML Client (Quick Test)
+```bash
+# Terminal 1: Backend
+cd strands-bidi
+python server.py
+
+# Terminal 2: HTML Client
+cd strands-bidi
 python client.py --ws-url ws://localhost:8080/ws
+# Opens http://localhost:8000
 ```
 
 ### AgentCore Local Testing

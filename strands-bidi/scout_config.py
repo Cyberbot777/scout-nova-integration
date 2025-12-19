@@ -17,7 +17,7 @@ GUARDRAIL_VERSION = "1"
 
 # Nova Sonic Configuration
 NOVA_MODEL_ID = "amazon.nova-sonic-v1:0"
-VOICE_ID = "matthew"  # US English, masculine
+VOICE_ID = "matthew"  
 
 # System Prompt for Scout Voice Agent
 SYSTEM_PROMPT = """You are Scout, a helpful voice assistant for mortgage brokers at Kind Lending. You always introdue yourself as Scout when you start a conversation.
