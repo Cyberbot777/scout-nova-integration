@@ -42,8 +42,8 @@ class VoiceAgent extends React.Component {
         };
         
         // Audio processing limits for security
-        this.MAX_AUDIO_CHUNK_SIZE = 64 * 1024; // 64KB max per chunk
-        this.MAX_AUDIO_BUFFER_SIZE = 1024 * 1024; // 1MB max total buffer
+        this.MAX_AUDIO_CHUNK_SIZE = 128 * 1024; // 128KB max per chunk
+        this.MAX_AUDIO_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB max total buffer (allows ~5 minutes of audio)
         this.audioBufferSize = 0;
         
         this.socket = null;
@@ -228,35 +228,34 @@ class VoiceAgent extends React.Component {
                         break;
                     }
                     
-                    // Check total buffer size
+                    // Track buffer size for current response
                     this.audioBufferSize += chunkSize;
-                    if (this.audioBufferSize > this.MAX_AUDIO_BUFFER_SIZE) {
-                        console.warn(`Total audio buffer size (${this.audioBufferSize}) exceeds maximum allowed (${this.MAX_AUDIO_BUFFER_SIZE}). Resetting buffer.`);
-                        this.audioBufferSize = chunkSize; // Reset to current chunk size
-                    }
+                    this.audioChunkCount++;
                     
                     // Convert and play audio immediately (worklet handles buffering)
                     const audioData = base64ToFloat32Array(base64Data);
-                    
-                    // Log chunk info for debugging (throttled)
-                    this.audioChunkCount++;
-                    if (this.audioChunkCount % 10 === 0) {
-                        console.log(`Audio chunk #${this.audioChunkCount}, size: ${chunkSize} bytes, samples: ${audioData.length}`);
-                    }
-                    
                     this.audioPlayer.playAudio(audioData);
                     
-                    // Don't log audio stream events - too noisy and not useful
-                    // Audio is playing; that's all that matters
+                    // Log progress periodically (every 100 chunks to reduce console spam)
+                    if (this.audioChunkCount % 100 === 0) {
+                        const bufferMB = (this.audioBufferSize / (1024 * 1024)).toFixed(2);
+                        console.log(`[Audio Progress] Chunk #${this.audioChunkCount}, Buffer: ${bufferMB}MB`);
+                    }
+                    
+                    // Don't log individual audio stream events - too noisy
                 } catch (error) {
                     console.error("Error processing audio chunk:", error);
                 }
                 break;
                 
             case "bidi_interruption":
-                // User interrupted the agent
-                console.log("Interruption detected:", message.reason);
+                // User interrupted the agent - cancel audio playback
+                console.log(`[Interruption] Reason: ${message.reason}, clearing audio buffer`);
                 this.cancelAudio();
+                
+                // Reset counters for interrupted response
+                this.audioBufferSize = 0;
+                this.audioChunkCount = 0;
                 break;
                 
             case "tool_use_stream":
@@ -282,8 +281,14 @@ class VoiceAgent extends React.Component {
                 break;
                 
             case "bidi_response_complete":
-                // Response finished
-                console.log("Response complete");
+                // Response finished - log final stats and reset counters
+                const finalBufferMB = (this.audioBufferSize / (1024 * 1024)).toFixed(2);
+                const durationSec = (this.audioChunkCount * 640 / 16000).toFixed(1); // Estimate: ~640 samples per chunk at 16kHz
+                console.log(`[Response Complete] Total: ${this.audioChunkCount} chunks, ${finalBufferMB}MB, ~${durationSec}s audio`);
+                
+                this.audioBufferSize = 0; // Reset buffer counter for next response
+                this.audioChunkCount = 0; // Reset chunk counter
+                
                 if (this.eventDisplayRef.current) {
                     this.eventDisplayRef.current.displayEvent(message, "in");
                 }
@@ -321,13 +326,15 @@ class VoiceAgent extends React.Component {
                 }
                 break;
                 
+            case "bidi_usage":
+                // Usage/billing information - ignore silently
+                // This is metadata from Nova Sonic about token/audio usage
+                break;
+                
             default:
+                // Log unknown event types for debugging (but don't display in event log)
                 console.log("Unknown event type:", eventType, message);
                 break;
-        }
-
-        if (this.eventDisplayRef.current) {
-            this.eventDisplayRef.current.displayEvent(message, "in");
         }
     }
 
