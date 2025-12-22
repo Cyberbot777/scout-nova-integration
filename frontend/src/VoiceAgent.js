@@ -49,9 +49,15 @@ class VoiceAgent extends React.Component {
         this.socket = null;
         this.mediaRecorder = null;
         this.chatMessagesEndRef = React.createRef();
+        this.chatAreaRef = React.createRef();
         this.stateRef = React.createRef();
         this.eventDisplayRef = React.createRef();
         this.audioPlayer = new AudioPlayer();
+        
+        // Track current response and role to group transcripts (prevents duplicates)
+        this.currentResponseId = null;
+        this.lastMessageRole = null;
+        this.lastMessageId = null;
         
         // Throttle event logging to reduce spam (UI only - processing happens in real-time)
         this.lastAudioEventLogTime = 0;
@@ -79,8 +85,33 @@ class VoiceAgent extends React.Component {
     componentDidUpdate(prevProps, prevState) {
         this.stateRef.current = this.state;
 
-        if (Object.keys(prevState.chatMessages).length !== Object.keys(this.state.chatMessages).length) {
-            this.chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        // Auto-scroll when messages change (new message or content update)
+        const prevMessageCount = Object.keys(prevState.chatMessages).length;
+        const currentMessageCount = Object.keys(this.state.chatMessages).length;
+        const messageCountChanged = prevMessageCount !== currentMessageCount;
+        
+        // Also check if any message content changed (for streaming updates)
+        let contentChanged = false;
+        if (!messageCountChanged) {
+            // Same number of messages - check if content changed
+            for (const [key, message] of Object.entries(this.state.chatMessages)) {
+                const prevMessage = prevState.chatMessages[key];
+                if (!prevMessage || prevMessage.content !== message.content) {
+                    contentChanged = true;
+                    break;
+                }
+            }
+        }
+        
+        // Scroll if new message added or content updated
+        if (messageCountChanged || contentChanged) {
+            // Use setTimeout to ensure DOM has updated
+            setTimeout(() => {
+                // Scroll the chat area container to bottom
+                if (this.chatAreaRef.current) {
+                    this.chatAreaRef.current.scrollTop = this.chatAreaRef.current.scrollHeight;
+                }
+            }, 50);
         }
     }
 
@@ -89,7 +120,12 @@ class VoiceAgent extends React.Component {
             this.socket.send(JSON.stringify(event));
             event.timestamp = Date.now();
 
-            if (this.eventDisplayRef.current) {
+            // Don't log audio input events to event display - too noisy
+            // Only log meaningful events
+            const eventType = event.type;
+            const shouldLog = eventType !== "bidi_audio_input";
+            
+            if (shouldLog && this.eventDisplayRef.current) {
                 this.eventDisplayRef.current.displayEvent(event, "out");
             }
         }
@@ -106,32 +142,75 @@ class VoiceAgent extends React.Component {
         var chatMessages = this.state.chatMessages;
 
         switch(eventType) {
+            case "bidi_response_start":
+                // New response starting - update the current response ID only if it changed
+                const newResponseId = message.response_id || `response-${Date.now()}`;
+                if (newResponseId !== this.currentResponseId) {
+                    this.currentResponseId = newResponseId;
+                    console.log(`New response started: ${this.currentResponseId}`);
+                }
+                
+                if (this.eventDisplayRef.current) {
+                    this.eventDisplayRef.current.displayEvent(message, "in");
+                }
+                break;
+                
             case "bidi_transcript_stream":
                 // Handle text transcript (user or assistant)
                 const role = message.role?.toUpperCase() || "ASSISTANT";
                 const text = message.text || message.transcript || "";
-                const contentId = message.contentId || `msg-${Date.now()}-${Math.random()}`;
                 
-                if (text) {
-                    if (!chatMessages[contentId]) {
-                        chatMessages[contentId] = {
-                            content: "",
-                            role: role,
-                            raw: []
-                        };
+                if (!text) break;
+                
+                // Use contentId from message if provided
+                let contentId = message.contentId;
+                
+                if (!contentId) {
+                    // Check if role changed from last message - if so, create new message
+                    if (role !== this.lastMessageRole) {
+                        // Role changed - create new message
+                        contentId = `${role}-${Date.now()}`;
+                        this.lastMessageRole = role;
+                        this.lastMessageId = contentId;
+                        console.log(`New message card: ${role}`);
+                    } else {
+                        // Same role - keep updating the SAME message
+                        contentId = this.lastMessageId || `${role}-${Date.now()}`;
+                        this.lastMessageId = contentId;
                     }
+                }
+                
+                // Create or update the message
+                if (!chatMessages[contentId]) {
+                    chatMessages[contentId] = {
+                        content: "",
+                        role: role,
+                        raw: [],
+                        timestamp: Date.now()
+                    };
+                }
+                
+                // APPEND text chunks to grow the message box
+                const existingContent = chatMessages[contentId].content.trim();
+                
+                if (!existingContent) {
+                    // First chunk
                     chatMessages[contentId].content = text;
-                    chatMessages[contentId].raw.push(message);
-                    this.setState({chatMessages: chatMessages});
-                    
-                    // Throttle transcript event logging
-                    const now = Date.now();
-                    const shouldLogTranscript = (now - this.lastTranscriptEventLogTime) >= this.transcriptEventLogInterval;
-                    
-                    if (shouldLogTranscript && this.eventDisplayRef.current) {
-                        this.eventDisplayRef.current.displayEvent(message, "in");
-                        this.lastTranscriptEventLogTime = now;
-                    }
+                } else if (text.length > existingContent.length && text.includes(existingContent)) {
+                    // Nova Sonic sent a longer version of the same text - replace
+                    chatMessages[contentId].content = text;
+                } else if (!existingContent.includes(text)) {
+                    // New different text - APPEND to grow the box
+                    chatMessages[contentId].content = existingContent + " " + text;
+                }
+                // If text already in existingContent, skip duplicate
+                
+                chatMessages[contentId].raw.push(message);
+                this.setState({chatMessages: chatMessages});
+                
+                // Log transcript events to event display (useful for debugging)
+                if (this.eventDisplayRef.current) {
+                    this.eventDisplayRef.current.displayEvent(message, "in");
                 }
                 break;
                 
@@ -156,24 +235,19 @@ class VoiceAgent extends React.Component {
                         this.audioBufferSize = chunkSize; // Reset to current chunk size
                     }
                     
+                    // Convert and play audio immediately (worklet handles buffering)
                     const audioData = base64ToFloat32Array(base64Data);
+                    
+                    // Log chunk info for debugging (throttled)
+                    this.audioChunkCount++;
+                    if (this.audioChunkCount % 10 === 0) {
+                        console.log(`Audio chunk #${this.audioChunkCount}, size: ${chunkSize} bytes, samples: ${audioData.length}`);
+                    }
+                    
                     this.audioPlayer.playAudio(audioData);
                     
-                    // Throttle event logging - only log every N chunks or every 2 seconds
-                    this.audioChunkCount++;
-                    const now = Date.now();
-                    const shouldLog = (now - this.lastAudioEventLogTime) >= this.audioEventLogInterval;
-                    
-                    if (shouldLog && this.eventDisplayRef.current) {
-                        // Create a summary event with chunk count
-                        const summaryEvent = {
-                            ...message,
-                            chunkCount: this.audioChunkCount
-                        };
-                        this.eventDisplayRef.current.displayEvent(summaryEvent, "in");
-                        this.lastAudioEventLogTime = now;
-                        this.audioChunkCount = 0;
-                    }
+                    // Don't log audio stream events - too noisy and not useful
+                    // Audio is playing; that's all that matters
                 } catch (error) {
                     console.error("Error processing audio chunk:", error);
                 }
@@ -189,31 +263,48 @@ class VoiceAgent extends React.Component {
                 // Tool is being called
                 const toolName = message.current_tool_use?.name || message.tool_name || "unknown";
                 console.log("Tool use:", toolName);
-                // Could add tool use indicator to UI here
+                
+                // Log tool calls to event display (useful!)
+                if (this.eventDisplayRef.current) {
+                    this.eventDisplayRef.current.displayEvent(message, "in");
+                }
                 break;
                 
             case "tool_result":
                 // Tool execution result
                 const result = message.tool_result;
                 console.log("Tool result:", result);
-                // Could display tool results in UI here
+                
+                // Log tool results to event display (useful!)
+                if (this.eventDisplayRef.current) {
+                    this.eventDisplayRef.current.displayEvent(message, "in");
+                }
                 break;
                 
             case "bidi_response_complete":
                 // Response finished
                 console.log("Response complete");
+                if (this.eventDisplayRef.current) {
+                    this.eventDisplayRef.current.displayEvent(message, "in");
+                }
                 break;
                 
             case "bidi_connection_start":
                 // Connection established
                 console.log("Connection started");
                 this.setState({status: "connected"});
+                if (this.eventDisplayRef.current) {
+                    this.eventDisplayRef.current.displayEvent(message, "in");
+                }
                 break;
                 
             case "bidi_connection_close":
                 // Connection closed
                 console.log("Connection closed");
                 this.setState({status: "disconnected"});
+                if (this.eventDisplayRef.current) {
+                    this.eventDisplayRef.current.displayEvent(message, "in");
+                }
                 break;
                 
             case "error":
@@ -225,6 +316,9 @@ class VoiceAgent extends React.Component {
                         dismissible: true
                     }
                 });
+                if (this.eventDisplayRef.current) {
+                    this.eventDisplayRef.current.displayEvent(message, "in");
+                }
                 break;
                 
             default:
@@ -453,6 +547,11 @@ class VoiceAgent extends React.Component {
         this.audioChunkCount = 0;
         this.lastTranscriptEventLogTime = 0;
         
+        // Reset message tracking
+        this.currentResponseId = null;
+        this.lastMessageRole = null;
+        this.lastMessageId = null;
+        
         // Update state
         this.setState({ 
             sessionStarted: false, 
@@ -579,7 +678,7 @@ class VoiceAgent extends React.Component {
                             {/* Chat Area */}
                             <Container>
                                 <Header variant="h3">Conversation</Header>
-                                <div className="chat-area">
+                                <div ref={this.chatAreaRef} className="chat-area">
                                     {this.renderChatMessages()}
                                     <div ref={this.chatMessagesEndRef} className="end-marker" />
                                 </div>

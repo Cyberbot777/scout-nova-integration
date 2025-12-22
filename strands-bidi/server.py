@@ -302,10 +302,41 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info(f"Tools: {len(tools)} loaded from Gateway")
         logger.info("Starting bi-directional streaming...")
 
-        # Direct WebSocket pass-through to BidiAgent
+        # Wrap WebSocket I/O with selective logging (only important events)
+        async def logged_receive_json():
+            data = await websocket.receive_json()
+            event_type = data.get("type", "unknown")
+            
+            # Only log important events, skip audio chunks
+            if event_type not in ["bidi_audio_input"]:
+                logger.info(f"⬅️  {event_type}: {str(data)[:150]}")
+            
+            return data
+        
+        async def logged_send_json(data):
+            event_type = data.get("type", "unknown")
+            
+            # Only log important events, skip audio chunks
+            if event_type == "bidi_transcript_stream":
+                text = data.get("text", data.get("transcript", ""))
+                role = data.get("role", "assistant").upper()
+                logger.info(f"➡️  {role}: {text}")
+            elif event_type == "tool_use_stream":
+                tool_name = data.get("current_tool_use", {}).get("name", "unknown")
+                logger.info(f"🔧 TOOL: {tool_name}")
+            elif event_type == "tool_result":
+                tool_name = data.get("tool_result", {}).get("name", "unknown")
+                logger.info(f"✅ TOOL RESULT: {tool_name}")
+            elif event_type in ["bidi_response_start", "bidi_response_complete"]:
+                logger.info(f"➡️  {event_type}")
+            # Skip bidi_audio_stream - too noisy
+            
+            await websocket.send_json(data)
+        
+        # Direct WebSocket pass-through to BidiAgent with logging
         await agent.run(
-            inputs=[websocket.receive_json],
-            outputs=[websocket.send_json]
+            inputs=[logged_receive_json],
+            outputs=[logged_send_json]
         )
 
     except WebSocketDisconnect:
