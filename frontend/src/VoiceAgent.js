@@ -49,6 +49,7 @@ class VoiceAgent extends React.Component {
         this.socket = null;
         this.mediaRecorder = null;
         this.chatMessagesEndRef = React.createRef();
+        this.chatAreaRef = React.createRef();
         this.stateRef = React.createRef();
         this.eventDisplayRef = React.createRef();
         this.audioPlayer = new AudioPlayer();
@@ -84,8 +85,33 @@ class VoiceAgent extends React.Component {
     componentDidUpdate(prevProps, prevState) {
         this.stateRef.current = this.state;
 
-        if (Object.keys(prevState.chatMessages).length !== Object.keys(this.state.chatMessages).length) {
-            this.chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        // Auto-scroll when messages change (new message or content update)
+        const prevMessageCount = Object.keys(prevState.chatMessages).length;
+        const currentMessageCount = Object.keys(this.state.chatMessages).length;
+        const messageCountChanged = prevMessageCount !== currentMessageCount;
+        
+        // Also check if any message content changed (for streaming updates)
+        let contentChanged = false;
+        if (!messageCountChanged) {
+            // Same number of messages - check if content changed
+            for (const [key, message] of Object.entries(this.state.chatMessages)) {
+                const prevMessage = prevState.chatMessages[key];
+                if (!prevMessage || prevMessage.content !== message.content) {
+                    contentChanged = true;
+                    break;
+                }
+            }
+        }
+        
+        // Scroll if new message added or content updated
+        if (messageCountChanged || contentChanged) {
+            // Use setTimeout to ensure DOM has updated
+            setTimeout(() => {
+                // Scroll the chat area container to bottom
+                if (this.chatAreaRef.current) {
+                    this.chatAreaRef.current.scrollTop = this.chatAreaRef.current.scrollHeight;
+                }
+            }, 50);
         }
     }
 
@@ -652,7 +678,7 @@ class VoiceAgent extends React.Component {
                             {/* Chat Area */}
                             <Container>
                                 <Header variant="h3">Conversation</Header>
-                                <div className="chat-area">
+                                <div ref={this.chatAreaRef} className="chat-area">
                                     {this.renderChatMessages()}
                                     <div ref={this.chatMessagesEndRef} className="end-marker" />
                                 </div>
