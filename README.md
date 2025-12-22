@@ -2,19 +2,12 @@
 
 Production-ready voice agent using **AWS official Strands BidiAgent pattern** with Amazon Nova Sonic for AgentCore Runtime deployment.
 
-## Current Status
-
-**Status:** Production-ready  
-**Implementation:** AWS official pattern with bi-directional streaming  
-**Deployment:** AgentCore Runtime ready
-
 ---
 
 ## Quick Start
 
 ### Local Development
 
-**Option 1: React Frontend (Recommended)**
 ```bash
 # Terminal 1: Start backend
 cd strands-bidi
@@ -27,18 +20,6 @@ npm start
 # Opens http://localhost:3000
 ```
 
-**Option 2: Simple HTML Client (Quick Testing)**
-```bash
-# Terminal 1: Start backend
-cd strands-bidi
-python server.py
-
-# Terminal 2: Start HTML client
-cd strands-bidi
-python client.py --ws-url ws://localhost:8080/ws
-# Opens http://localhost:8000
-```
-
 Click "Start Conversation" and speak!
 
 ### AgentCore Deployment
@@ -46,13 +27,23 @@ Click "Start Conversation" and speak!
 ```bash
 cd strands-bidi
 
-# Deploy to AgentCore
-docker build -t scout-voice-agent .
-docker push YOUR_ECR_REPO/scout-voice-agent:latest
-bedrock-agentcore deploy
+# One-time setup: Install AgentCore toolkit
+pip install bedrock-agentcore-starter-toolkit
 
-# Connect to deployed agent
-python client.py --runtime-arn YOUR_RUNTIME_ARN
+# Configure your agent (interactive setup - creates .bedrock_agentcore.yaml)
+agentcore configure -e server.py
+
+# Deploy to AWS AgentCore (builds container, pushes to ECR, deploys)
+agentcore launch
+
+# Test deployment
+agentcore invoke '{"prompt": "Hello Scout"}'
+
+# View logs
+agentcore logs --follow
+
+# Connect React frontend to deployed agent
+# Update REACT_APP_WS_URL in frontend/.env to point to your deployed WebSocket endpoint
 ```
 
 See [strands-bidi/README.md](./strands-bidi/README.md) for complete documentation.
@@ -62,7 +53,7 @@ See [strands-bidi/README.md](./strands-bidi/README.md) for complete documentatio
 ## Architecture
 
 ```
-client.html (Browser)
+React Frontend (Browser)
     |
     | WebSocket (BidiAgent protocol)
     v
@@ -96,14 +87,13 @@ BidiAgent (Strands SDK)
 scout-nova-integration/
 ├── strands-bidi/              # PRODUCTION VOICE AGENT BACKEND
 │   ├── server.py              # FastAPI backend with BidiAgent
-│   ├── client.py              # HTML client launcher (testing)
-│   ├── client.html            # Simple HTML client (testing)
 │   ├── websocket_helpers.py   # SigV4 authentication
 │   ├── scout_config.py        # Scout configuration
 │   ├── config.example.py      # Template for other agents
 │   ├── gateway_client.py      # MCP Gateway integration
-│   ├── Dockerfile             # Production deployment
+│   ├── Dockerfile             # Container definition (used by AgentCore CLI)
 │   ├── pyproject.toml         # Dependencies
+│   ├── .bedrock_agentcore.yaml # AgentCore deployment config (generated)
 │   └── README.md              # Complete documentation
 │
 ├── frontend/                  # REACT FRONTEND (Production UI)
@@ -160,7 +150,7 @@ Tools are automatically discovered and integrated via the Gateway.
 
 ## Testing
 
-### Local Development with React Frontend
+### Local Development
 ```bash
 # Terminal 1: Backend
 cd strands-bidi
@@ -173,33 +163,65 @@ npm start
 # Opens http://localhost:3000
 ```
 
-### Local Development with HTML Client (Quick Test)
-```bash
-# Terminal 1: Backend
-cd strands-bidi
-python server.py
-
-# Terminal 2: HTML Client
-cd strands-bidi
-python client.py --ws-url ws://localhost:8080/ws
-# Opens http://localhost:8000
-```
-
 ### AgentCore Local Testing
 ```bash
+# Terminal 1: Launch AgentCore locally (uses local Docker container)
 cd strands-bidi
-bedrock-agentcore launch
-python client.py --ws-url ws://localhost:8080/ws
+agentcore launch --local
+
+# Terminal 2: Start React Frontend
+cd frontend
+npm start
+# WebSocket connects to ws://localhost:8080/ws
 ```
 
 ### Production Deployment
 ```bash
 cd strands-bidi
-bedrock-agentcore deploy
-python client.py --runtime-arn YOUR_RUNTIME_ARN
+
+# Deploy to AWS
+agentcore launch
+
+# Test the deployment
+agentcore invoke '{"prompt": "Hello Scout"}'
+
+# View production logs
+agentcore logs --follow
+
+# Update frontend/.env with your deployed endpoint
+# REACT_APP_WS_URL=wss://your-deployed-endpoint/ws
 ```
 
 ---
+
+## AgentCore Configuration
+
+The `agentcore configure` command creates a `.bedrock_agentcore.yaml` file with:
+
+- **Agent Name**: Unique identifier for your agent
+- **Execution Role**: IAM role with necessary permissions
+- **ECR Repository**: Container registry (auto-created if needed)
+- **Region**: AWS region (us-east-1 for this project)
+- **Network Configuration**: PUBLIC network mode for WebSocket access
+- **Protocol**: HTTP server protocol for bi-directional streaming
+- **Observability**: Enabled for CloudWatch logs and X-Ray tracing
+
+Example configuration:
+```yaml
+agents:
+  scout-voice-agent:
+    name: scout-voice-agent
+    entrypoint: server.py
+    deployment_type: container
+    aws:
+      region: us-east-1
+      network_configuration:
+        network_mode: PUBLIC
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+```
 
 ## Deployment Benefits
 
@@ -212,6 +234,13 @@ With AgentCore Runtime bi-directional streaming:
 - Production-grade reliability
 
 **No code changes needed** - the same code runs locally and in production!
+
+The AgentCore CLI handles:
+- ✅ Docker container building
+- ✅ ECR repository creation and push
+- ✅ AgentCore runtime deployment
+- ✅ Health endpoint monitoring
+- ✅ Log aggregation
 
 ---
 
@@ -226,11 +255,14 @@ With AgentCore Runtime bi-directional streaming:
 
 ## Technical Details
 
-- **Region:** us-east-1
+- **Region:** us-east-1 (company standard)
 - **Model:** amazon.nova-sonic-v1:0
 - **Voice:** matthew (en-US)
 - **Protocol:** BidiAgent (not raw Nova Sonic)
 - **Runtime:** AgentCore with bi-directional streaming
+- **Deployment:** AgentCore CLI (`agentcore configure`, `agentcore launch`)
+- **Configuration:** `.bedrock_agentcore.yaml` (auto-generated)
+- **Observability:** OpenTelemetry + CloudWatch Logs + X-Ray
 
 ---
 
