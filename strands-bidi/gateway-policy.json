@@ -1,0 +1,34 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "bedrock-agentcore:InvokeGateway",
+                "bedrock-agentcore:*"
+            ],
+            "Resource": [
+                "arn:aws:bedrock-agentcore:us-east-1:025066260073:gateway/*",
+                "arn:aws:bedrock-agentcore:*:025066260073:*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:ApplyGuardrail"
+            ],
+            "Resource": [
+                "arn:aws:bedrock:us-east-1:025066260073:guardrail/6gwv3he4u3dx"
+            ]
+        }
+    ]
+}
+

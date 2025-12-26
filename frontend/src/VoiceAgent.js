@@ -38,7 +38,7 @@ class VoiceAgent extends React.Component {
 
             // BidiAgent config items
             configVoiceIdOption: { label: "Matthew (en-US)", value: "matthew" },
-            websocketUrl: "ws://localhost:8080/ws"
+            websocketUrl: process.env.REACT_APP_WS_URL || "ws://localhost:8080/ws"
         };
         
         // Audio processing limits for security
@@ -371,32 +371,44 @@ class VoiceAgent extends React.Component {
         this.setState({sessionStarted: !this.state.sessionStarted});
     }
 
-    connectWebSocket() {
+    async connectWebSocket() {
         // Connect to the BidiAgent WebSocket server
         if (this.socket === null || this.socket.readyState !== WebSocket.OPEN) {
-            // Build WebSocket URL with voice_id query param
-            const url = new URL(this.state.websocketUrl);
-            url.searchParams.set('voice_id', this.state.configVoiceIdOption.value);
-            const wsUrl = url.toString();
+            try {
+                // Get the WebSocket URL from the backend (handles SigV4 signing for AgentCore)
+                const baseUrl = process.env.REACT_APP_API_URL || "http://localhost:8080";
+                
+                console.log("Using API URL:", baseUrl);
+                
+                const response = await fetch(`${baseUrl}/get-websocket-url?voice_id=${this.state.configVoiceIdOption.value}`);
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to get WebSocket URL: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                const wsUrl = data.websocket_url;
+                
+                console.log(`Connecting to ${data.environment} WebSocket...`);
 
-            this.socket = new WebSocket(wsUrl);
-            
-            this.socket.onopen = () => {
-                console.log("WebSocket connected to BidiAgent!");
-                this.setState({status: "connected"});
-                // BidiAgent handles session initialization automatically
-                // No need to send sessionStart, promptStart, etc.
-            };
+                this.socket = new WebSocket(wsUrl);
+                
+                this.socket.onopen = () => {
+                    console.log("WebSocket connected to BidiAgent!");
+                    this.setState({status: "connected"});
+                    // BidiAgent handles session initialization automatically
+                    // No need to send sessionStart, promptStart, etc.
+                };
 
-            // Handle incoming messages
-            this.socket.onmessage = (message) => {
-                const event = JSON.parse(message.data);
-                this.handleIncomingMessage(event);
-            };
+                // Handle incoming messages
+                this.socket.onmessage = (message) => {
+                    const event = JSON.parse(message.data);
+                    this.handleIncomingMessage(event);
+                };
 
-            // Handle errors
-            this.socket.onerror = (error) => {
-                console.error("WebSocket Error: ", error);
+                // Handle errors
+                this.socket.onerror = (error) => {
+                    console.error("WebSocket Error: ", error);
                 this.setState({
                     status: "disconnected",
                     alert: {
@@ -448,6 +460,19 @@ class VoiceAgent extends React.Component {
                     this.setState({ sessionStarted: false });
                 }
             };
+            
+            } catch (error) {
+                console.error("Error connecting to WebSocket:", error);
+                this.setState({
+                    status: "disconnected",
+                    alert: {
+                        type: "error",
+                        message: `Failed to connect: ${error.message}`,
+                        dismissible: true,
+                        showRestart: true
+                    }
+                });
+            }
         }
     }
 

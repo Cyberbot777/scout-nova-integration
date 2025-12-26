@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
-Scout Voice Agent - AgentCore Runtime with Bi-directional Streaming
+Scout Voice Agent - PRODUCTION AGENTCORE DEPLOYMENT
 
-This server supports:
+This is the PRODUCTION server for AWS AgentCore deployment.
+
+Features:
 - HTTP /ping endpoint for health checks
 - WebSocket /ws endpoint for bi-directional voice streaming
-- Direct BidiAgent integration (no custom I/O handlers needed!)
-- Scout system prompt and Gateway tools
-- IMDS credential refresh for production deployment
+- Pre-signed URL generation with AWS SigV4 authentication
+- IMDS credential refresh for production EC2/Fargate deployment
+- Scout system prompt and Gateway tools integration
+
+For local testing, use test_agent.py instead.
 """
 import logging
 import uvicorn
@@ -31,6 +35,7 @@ from scout_config import (
     SYSTEM_PROMPT,
 )
 from gateway_client import create_mcp_client, load_gateway_tools
+from websocket_helpers import create_presigned_url
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -257,6 +262,60 @@ async def health_check():
         "region": REGION,
         "model": NOVA_MODEL_ID
     })
+
+
+@app.get("/get-websocket-url")
+async def get_websocket_url(voice_id: str = "matthew"):
+    """
+    Generate a pre-signed WebSocket URL for connecting to AgentCore.
+    The frontend calls this endpoint to get a valid authenticated URL.
+    """
+    try:
+        # Check if running in AgentCore (production)
+        agentcore_runtime_id = os.getenv("AGENTCORE_RUNTIME_ID", "ScoutVoice-BmhNAcH9IQ")
+        is_production = os.getenv("DOCKER_CONTAINER") == "1"
+        
+        if is_production:
+            # Production: Return pre-signed AgentCore URL
+            base_url = f"wss://runtime.bedrock-agentcore.{REGION}.amazonaws.com/agents/{agentcore_runtime_id}/ws"
+            
+            # Add voice_id to the base URL
+            if "?" in base_url:
+                base_url += f"&voice_id={voice_id}"
+            else:
+                base_url += f"?voice_id={voice_id}"
+            
+            # Generate pre-signed URL
+            signed_url = create_presigned_url(
+                base_url=base_url,
+                region=REGION,
+                service="bedrock-agentcore",
+                expires=3600  # 1 hour
+            )
+            
+            return JSONResponse({
+                "websocket_url": signed_url,
+                "expires_in": 3600,
+                "environment": "production"
+            })
+        else:
+            # Local development: Return local URL
+            host = os.getenv("HOST", "localhost")
+            port = int(os.getenv("PORT", "8080"))
+            local_url = f"ws://{host}:{port}/ws?voice_id={voice_id}"
+            
+            return JSONResponse({
+                "websocket_url": local_url,
+                "expires_in": None,
+                "environment": "local"
+            })
+            
+    except Exception as e:
+        logger.error(f"Error generating WebSocket URL: {e}")
+        return JSONResponse(
+            {"error": str(e)},
+            status_code=500
+        )
 
 
 @app.websocket("/ws")

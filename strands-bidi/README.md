@@ -32,32 +32,38 @@ BidiAgent (Strands SDK)
 
 ## Quick Start
 
+### Two Server Files
+
+This project has **two server files**:
+
+1. **`test_agent.py`** - For local development and testing
+   - Simplified setup, no IMDS, no credential refresh
+   - Direct WebSocket connection
+   - Use this for local testing with React frontend
+
+2. **`server.py`** - For AgentCore production deployment
+   - Full production features (IMDS, credential refresh, pre-signed URLs)
+   - Optimized for AgentCore Runtime
+   - Use this for deploying to AWS
+
 ### Local Development
 
 ```bash
 cd strands-bidi
 
 # Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  
+uv venv
+source .venv/Scripts/activate  # Windows
+# source .venv/bin/activate     # Mac/Linux
 
 # Install dependencies
-pip install -e .
+uv pip install -e .
 
-# Configure credentials
-cp env.example .env
-# Edit .env with your AWS credentials
-
-# Start server
-python server.py
-
-# In another terminal, start client
-python client.py --ws-url ws://localhost:8080/ws
+# Run the LOCAL TEST server
+python test_agent.py
 ```
 
-The client will open your browser at http://localhost:8000 with the voice interface.
-
-```
+The server will be available at `ws://localhost:8080/ws`. Use the React frontend in `../frontend` to connect.
 
 ## File Structure
 
@@ -243,15 +249,44 @@ python client.py --ws-url ws://localhost:8080/ws
 
 ### AgentCore Deployment
 
-The server runs on **port 8080** with:
+**Use `server.py` for production AgentCore deployment:**
+
+```bash
+cd strands-bidi
+
+# Configure AgentCore (interactive)
+agentcore configure
+
+# Deploy to AgentCore
+agentcore launch
+
+# Check status
+agentcore invoke '{"prompt": "test"}'
+
+# View logs
+agentcore logs --follow
+```
+
+**The production server runs on port 8080 with:**
 - `GET /ping` - Health check (AgentCore requirement)
 - `GET /health` - Extended health check
+- `GET /get-websocket-url` - Generates pre-signed WebSocket URLs with SigV4 auth
 - `WS /ws` - Bi-directional streaming endpoint
 
-AgentCore will:
-- Call `/ping` for health monitoring
-- Connect to `/ws` for voice sessions
-- Handle scaling, observability, and infrastructure
+**Frontend configuration for deployed agent:**
+
+Update `frontend/.env`:
+```bash
+REACT_APP_API_URL=https://runtime.bedrock-agentcore.us-east-1.amazonaws.com/agents/YOUR-AGENT-ID
+```
+
+The React frontend will call `/get-websocket-url` to get an authenticated WebSocket URL, then connect to it.
+
+**AgentCore handles:**
+- Automatic scaling
+- Health monitoring
+- Observability and metrics
+- Infrastructure management
 
 ## Troubleshooting
 
